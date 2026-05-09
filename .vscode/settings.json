@@ -1,0 +1,20 @@
+{
+  "C_Cpp.default.cStandard": "c11",
+  "C_Cpp.default.compilerPath": "/usr/bin/gcc",
+  "makefile.launchConfigurations": [
+    {
+      "cwd": "${workspaceFolder}",
+      "binaryPath": "${workspaceFolder}/bin/3enraya_server",
+      "binaryArgs": ["--host", "127.0.0.1", "--port", "5000"]
+    },
+    {
+      "cwd": "${workspaceFolder}",
+      "binaryPath": "${workspaceFolder}/bin/3enraya_client",
+      "binaryArgs": ["--host", "127.0.0.1", "--port", "5000", "--name", "Jugador"]
+    }
+  ],
+  "files.associations": {
+    "*.h": "c",
+    "*.c": "c"
+  }
+}

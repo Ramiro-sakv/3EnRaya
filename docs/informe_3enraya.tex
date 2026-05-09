@@ -1,0 +1,179 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{geometry}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{tikz}
+
+\usetikzlibrary{arrows.meta,positioning,babel}
+
+\geometry{margin=2.5cm}
+
+\lstdefinestyle{code}{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    columns=fullflexible,
+    showstringspaces=false
+}
+
+\title{\textbf{Proyecto 3EnRaya}\\Informe tecnico de Teleinformatica}
+\author{
+    Estudiante: \underline{\hspace{8cm}}\\
+    Codigo: \underline{\hspace{8cm}}\\
+    Docente: Luis Marcel Barrero Mendizabal\\
+    Materia: Teleinformatica
+}
+\date{Mayo de 2026}
+
+\begin{document}
+
+\begin{titlepage}
+    \centering
+    {\Large Universidad \underline{\hspace{8cm}}\par}
+    \vspace{1.5cm}
+    {\Huge \textbf{Proyecto 3EnRaya}\par}
+    \vspace{0.5cm}
+    {\Large Informe tecnico de Teleinformatica\par}
+    \vspace{2cm}
+    \begin{flushleft}
+    \textbf{Estudiante:} \underline{\hspace{9cm}}\\[0.4cm]
+    \textbf{Codigo:} \underline{\hspace{9.8cm}}\\[0.4cm]
+    \textbf{Docente:} Luis Marcel Barrero Mendizabal\\[0.4cm]
+    \textbf{Materia:} Teleinformatica\\[0.4cm]
+    \textbf{Fecha:} Mayo de 2026
+    \end{flushleft}
+    \vfill
+    {\large Linux Mint - Lenguaje C - Sockets TCP\par}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+\section{Introduccion}
+
+3EnRaya es un sistema cliente-servidor desarrollado en lenguaje C. El servidor
+central recibe conexiones TCP, registra jugadores, mantiene una cola de espera
+y administra completamente una partida de tres en raya 1 vs 1.
+
+El juego no se ejecuta entre pares directamente. Los clientes solo envian
+comandos al servidor y reciben respuestas. El servidor valida turnos,
+movimientos, tablero, ganador, empate y marcador.
+
+\section{Objetivo}
+
+Implementar un servicio de red con sockets TCP donde varios jugadores puedan
+conectarse a un servidor central y participar en partidas de tres en raya.
+
+\section{Arquitectura}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+    box/.style={draw, rounded corners=4pt, very thick, align=center, minimum width=3cm, minimum height=1.2cm, fill=blue!8},
+    server/.style={draw, rounded corners=4pt, very thick, align=center, minimum width=4cm, minimum height=1.5cm, fill=green!10},
+    arrow/.style={{Stealth[length=3mm]}-{Stealth[length=3mm]}, very thick}
+]
+\node[server] (s) {\textbf{Servidor central}\\TCP :5000\\select + juego};
+\node[box, left=3.4cm of s] (a) {\textbf{Cliente A}\\Jugador X};
+\node[box, right=3.4cm of s] (b) {\textbf{Cliente B}\\Jugador O};
+\node[box, below=2.2cm of s] (n) {\textbf{Cliente N}\\Lobby};
+\draw[arrow] (a) -- node[above]{TCP} (s);
+\draw[arrow] (s) -- node[above]{TCP} (b);
+\draw[arrow] (n) -- node[right]{TCP} (s);
+\end{tikzpicture}
+\caption{Arquitectura cliente-servidor.}
+\end{figure}
+
+\section{Makefile}
+
+El proyecto usa un Makefile inspirado en el formato de clase. Sus variables
+principales son:
+
+\begin{lstlisting}[style=code]
+CC = gcc
+CFLAGS = -std=c11 -Wall -Wextra -Wrestrict -pedantic -O2
+EXT = .c
+SRCDIR = src
+OBJDIR = obj
+BINDIR = bin
+\end{lstlisting}
+
+A diferencia del template de un solo ejecutable, este proyecto genera dos:
+
+\begin{lstlisting}[style=code]
+bin/3enraya_server
+bin/3enraya_client
+\end{lstlisting}
+
+\section{Protocolo}
+
+El protocolo es de texto y cada mensaje termina en salto de linea. Los comandos
+principales son:
+
+\begin{longtable}{|p{4cm}|p{9cm}|}
+\hline
+\textbf{Comando} & \textbf{Descripcion} \\
+\hline
+\texttt{HELLO <nombre>} & Registra al jugador. \\
+\hline
+\texttt{QUEUE} & Entra a cola de espera. \\
+\hline
+\texttt{PLAYERS} & Lista participantes conectados. \\
+\hline
+\texttt{SCORE} & Muestra marcador. \\
+\hline
+\texttt{BOARD} & Muestra tablero y turno. \\
+\hline
+\texttt{MOVE <1-9>} & Realiza una jugada. \\
+\hline
+\texttt{QUIT} & Cierra la conexion. \\
+\hline
+\end{longtable}
+
+\section{Estructuras de datos}
+
+\subsection{\texttt{Player}}
+
+Representa un jugador conectado. Contiene socket, direccion IP, nombre, buffer
+de recepcion, estado de cola, partida actual, simbolo y marcador.
+
+\subsection{\texttt{Game}}
+
+Representa una partida activa. Contiene identificador, jugador X, jugador O,
+tablero y turno actual.
+
+\section{Estados del jugador}
+
+\begin{lstlisting}[style=code]
+DESCONECTADO -> CONECTADO -> LOBBY -> EN_COLA -> EN_PARTIDA -> LOBBY
+\end{lstlisting}
+
+Desde cualquier estado conectado, el jugador puede pasar a \texttt{DESCONECTADO}
+por \texttt{QUIT}, error o desconexion.
+
+\section{Compilacion y ejecucion}
+
+\begin{lstlisting}[style=code]
+make
+./bin/3enraya_server --host 127.0.0.1 --port 5000
+./bin/3enraya_client --host 127.0.0.1 --port 5000 --name Ramiro
+./bin/3enraya_client --host 127.0.0.1 --port 5000 --name Paulo
+\end{lstlisting}
+
+\section{Conclusiones}
+
+\begin{itemize}
+    \item El servidor central controla completamente el juego.
+    \item \texttt{select} permite atender varios clientes sin procesos ni hilos.
+    \item El Makefile separa compilacion de servidor y cliente usando objetos.
+    \item El protocolo de texto facilita la defensa y la depuracion.
+    \item El proyecto es compatible con Visual Studio Code y extensiones de C/C++.
+\end{itemize}
+
+\end{document}
