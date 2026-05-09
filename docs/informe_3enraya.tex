@@ -14,6 +14,12 @@
 
 \geometry{margin=2.5cm}
 
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue
+}
+
 \lstdefinestyle{code}{
     basicstyle=\ttfamily\small,
     breaklines=true,
@@ -36,6 +42,8 @@
 \begin{titlepage}
     \centering
     {\Large Universidad \underline{\hspace{8cm}}\par}
+    \vspace{1.2cm}
+    {\Large Facultad / Carrera: \underline{\hspace{7cm}}\par}
     \vspace{1.5cm}
     {\Huge \textbf{Proyecto 3EnRaya}\par}
     \vspace{0.5cm}
@@ -46,10 +54,10 @@
     \textbf{Codigo:} \underline{\hspace{9.8cm}}\\[0.4cm]
     \textbf{Docente:} Luis Marcel Barrero Mendizabal\\[0.4cm]
     \textbf{Materia:} Teleinformatica\\[0.4cm]
-    \textbf{Fecha:} Mayo de 2026
+    \textbf{Fecha:} 9 de mayo de 2026
     \end{flushleft}
     \vfill
-    {\large Linux Mint - Lenguaje C - Sockets TCP\par}
+    {\large Linux Mint - Lenguaje C - Sockets TCP - select(2)\par}
 \end{titlepage}
 
 \tableofcontents
@@ -57,18 +65,52 @@
 
 \section{Introduccion}
 
-3EnRaya es un sistema cliente-servidor desarrollado en lenguaje C. El servidor
-central recibe conexiones TCP, registra jugadores, mantiene una cola de espera
-y administra completamente una partida de tres en raya 1 vs 1.
+3EnRaya es un sistema cliente-servidor desarrollado en lenguaje C para Linux.
+El servidor central recibe conexiones TCP, registra jugadores, mantiene una
+lista dinamica de participantes, administra una cola de espera y controla
+completamente una partida de tres en raya 1 vs 1.
 
 El juego no se ejecuta entre pares directamente. Los clientes solo envian
 comandos al servidor y reciben respuestas. El servidor valida turnos,
-movimientos, tablero, ganador, empate y marcador.
+movimientos, tablero, ganador, empate, abandono y marcador. Esta decision
+permite que exista un unico estado oficial del juego.
 
-\section{Objetivo}
+\section{Objetivo general}
 
-Implementar un servicio de red con sockets TCP donde varios jugadores puedan
-conectarse a un servidor central y participar en partidas de tres en raya.
+Disenar e implementar un protocolo de aplicacion y un servicio de red que
+permita a varios jugadores participar en partidas de tres en raya mediante un
+servidor central TCP.
+
+\section{Objetivos especificos}
+
+\begin{itemize}
+    \item Implementar un servidor central en C.
+    \item Permitir multiples clientes conectados al mismo tiempo.
+    \item Usar \texttt{select(2)} para multiplexar sockets sin usar
+    \texttt{fork(2)} ni \texttt{pthread}.
+    \item Usar estructuras dinamicas para almacenar jugadores y cola de espera.
+    \item Definir comandos y respuestas en un protocolo de texto.
+    \item Administrar el juego completamente desde el servidor.
+    \item Registrar participantes y marcador de forma efimera mientras el
+    servidor se mantiene en ejecucion.
+    \item Documentar el servicio con formato similar a RFC.
+\end{itemize}
+
+\section{Descripcion del servicio}
+
+El servicio permite que varios jugadores se conecten a un servidor central.
+Cada jugador inicia una sesion interactiva desde la aplicacion cliente. Al
+conectarse, el jugador recibe un mensaje de bienvenida y debe registrarse con
+el comando \texttt{HELLO <nombre>}.
+
+Despues del registro, el jugador queda en estado \texttt{LOBBY}. Desde ese
+estado puede solicitar el listado de participantes, consultar marcador, pedir
+tablero si esta en partida, entrar a cola o salir. Cuando dos jugadores entran
+a la cola, el servidor los empareja y crea una partida.
+
+Durante la partida, el servidor administra el intercambio de mensajes y valida
+cada jugada. Los clientes no tienen autoridad para modificar el tablero por su
+cuenta; solo solicitan movimientos usando \texttt{MOVE <1-9>}.
 
 \section{Arquitectura}
 
@@ -77,23 +119,51 @@ conectarse a un servidor central y participar en partidas de tres en raya.
 \begin{tikzpicture}[
     box/.style={draw, rounded corners=4pt, very thick, align=center, minimum width=3cm, minimum height=1.2cm, fill=blue!8},
     server/.style={draw, rounded corners=4pt, very thick, align=center, minimum width=4cm, minimum height=1.5cm, fill=green!10},
+    note/.style={draw, rounded corners=3pt, align=center, fill=yellow!15, font=\small},
     arrow/.style={{Stealth[length=3mm]}-{Stealth[length=3mm]}, very thick}
 ]
 \node[server] (s) {\textbf{Servidor central}\\TCP :5000\\select + juego};
 \node[box, left=3.4cm of s] (a) {\textbf{Cliente A}\\Jugador X};
 \node[box, right=3.4cm of s] (b) {\textbf{Cliente B}\\Jugador O};
-\node[box, below=2.2cm of s] (n) {\textbf{Cliente N}\\Lobby};
+\node[box, below=2.2cm of s] (n) {\textbf{Cliente N}\\Lobby / consultas};
+\node[note, above=1.0cm of s] (logic) {El servidor valida turnos,\\movimientos y resultados};
 \draw[arrow] (a) -- node[above]{TCP} (s);
 \draw[arrow] (s) -- node[above]{TCP} (b);
 \draw[arrow] (n) -- node[right]{TCP} (s);
+\draw[very thick, -{Stealth[length=3mm]}] (logic) -- (s);
 \end{tikzpicture}
 \caption{Arquitectura cliente-servidor.}
 \end{figure}
 
+\subsection{Responsabilidades del servidor}
+
+\begin{itemize}
+    \item Escuchar en un puerto TCP predefinido.
+    \item Aceptar clientes nuevos.
+    \item Registrar jugadores.
+    \item Mantener lista de jugadores conectados.
+    \item Mantener cola de espera.
+    \item Crear partidas 1 vs 1.
+    \item Validar comandos, turnos y movimientos.
+    \item Notificar tablero, turno, resultado y marcador.
+    \item Mostrar en consola los mensajes recibidos y enviados.
+\end{itemize}
+
+\subsection{Responsabilidades del cliente}
+
+\begin{itemize}
+    \item Conectarse al servidor central.
+    \item Enviar comandos escritos por el jugador.
+    \item Recibir respuestas del servidor.
+    \item Mostrar tablero, turno, participantes, marcador y errores.
+\end{itemize}
+
 \section{Makefile}
 
-El proyecto usa un Makefile inspirado en el formato de clase. Sus variables
-principales son:
+El proyecto usa un Makefile inspirado en el formato de clase. Se conservan
+variables como \texttt{EXT}, \texttt{SRCDIR} y \texttt{OBJDIR}. La diferencia
+es que este proyecto genera dos ejecutables, porque servidor y cliente tienen
+funciones \texttt{main} independientes.
 
 \begin{lstlisting}[style=code]
 CC = gcc
@@ -102,51 +172,124 @@ EXT = .c
 SRCDIR = src
 OBJDIR = obj
 BINDIR = bin
+SERVER_APP = $(BINDIR)/3enraya_server
+CLIENT_APP = $(BINDIR)/3enraya_client
 \end{lstlisting}
 
-A diferencia del template de un solo ejecutable, este proyecto genera dos:
+El objetivo \texttt{all} construye:
 
 \begin{lstlisting}[style=code]
 bin/3enraya_server
 bin/3enraya_client
 \end{lstlisting}
 
-\section{Protocolo}
+El objetivo \texttt{test} ejecuta una prueba automatizada con dos clientes.
 
-El protocolo es de texto y cada mensaje termina en salto de linea. Los comandos
-principales son:
+\section{Protocolo 3ENRAYA/1.0}
+
+El protocolo es de texto sobre TCP. Cada comando y cada respuesta termina con
+salto de linea \texttt{\textbackslash n}. Esto facilita la lectura, prueba y
+depuracion desde terminal.
+
+\subsection{Comandos}
 
 \begin{longtable}{|p{4cm}|p{9cm}|}
 \hline
 \textbf{Comando} & \textbf{Descripcion} \\
 \hline
-\texttt{HELLO <nombre>} & Registra al jugador. \\
+\texttt{HELLO <nombre>} & Registra al jugador. El nombre acepta letras, numeros y guion bajo. \\
 \hline
-\texttt{QUEUE} & Entra a cola de espera. \\
+\texttt{HELP} & Lista comandos disponibles. \\
 \hline
-\texttt{PLAYERS} & Lista participantes conectados. \\
+\texttt{QUEUE} & Ingresa al jugador a la cola de espera. \\
 \hline
-\texttt{SCORE} & Muestra marcador. \\
+\texttt{PLAYERS} & Lista participantes conectados y estado. Alias: \texttt{LIST}. \\
 \hline
-\texttt{BOARD} & Muestra tablero y turno. \\
+\texttt{SCORE} & Muestra victorias, empates y derrotas. \\
 \hline
-\texttt{MOVE <1-9>} & Realiza una jugada. \\
+\texttt{BOARD} & Muestra tablero y turno actual. \\
 \hline
-\texttt{QUIT} & Cierra la conexion. \\
+\texttt{MOVE <1-9>} & Solicita marcar una casilla. \\
+\hline
+\texttt{QUIT} & Cierra la sesion o abandona la partida. \\
 \hline
 \end{longtable}
 
-\section{Estructuras de datos}
+\subsection{Respuestas}
 
-\subsection{\texttt{Player}}
+\begin{longtable}{|p{5cm}|p{8cm}|}
+\hline
+\textbf{Respuesta} & \textbf{Significado} \\
+\hline
+\texttt{WELCOME 3ENRAYA/1.0 usa HELLO <nombre>} & El servidor acepto la conexion. \\
+\hline
+\texttt{OK <texto>} & Operacion aceptada. \\
+\hline
+\texttt{ERR <texto>} & Operacion rechazada. \\
+\hline
+\texttt{INFO <texto>} & Mensaje informativo. \\
+\hline
+\texttt{PLAYER <nombre> <estado>} & Participante conectado y estado actual. \\
+\hline
+\texttt{SCORE <nombre> <victorias> <empates> <derrotas>} & Marcador de un jugador. \\
+\hline
+\texttt{MATCH <id> <simbolo> <oponente>} & Partida creada y simbolo asignado. \\
+\hline
+\texttt{BOARD <celdas>} & Tablero de 9 caracteres. \\
+\hline
+\texttt{TURN <simbolo> <nombre>} & Jugador que debe mover. \\
+\hline
+\texttt{RESULT WIN <simbolo> <nombre>} & Partida terminada con ganador. \\
+\hline
+\texttt{RESULT DRAW} & Partida terminada en empate. \\
+\hline
+\texttt{RESULT ABORT <texto>} & Partida terminada por abandono o desconexion. \\
+\hline
+\texttt{BYE <texto>} & Cierre normal de sesion. \\
+\hline
+\end{longtable}
 
-Representa un jugador conectado. Contiene socket, direccion IP, nombre, buffer
-de recepcion, estado de cola, partida actual, simbolo y marcador.
+\subsection{Interaccion cliente-servidor}
 
-\subsection{\texttt{Game}}
+\begin{lstlisting}[style=code]
+Servidor -> Cliente: WELCOME 3ENRAYA/1.0 usa HELLO <nombre>
+Cliente  -> Servidor: HELLO Ramiro
+Servidor -> Cliente: OK registrado como Ramiro
+Cliente  -> Servidor: PLAYERS
+Servidor -> Cliente: INFO PARTICIPANTES conectados=3 en_cola=0 partidas=0
+Cliente  -> Servidor: QUEUE
+Servidor -> Cliente: OK en cola de espera
+Servidor -> Cliente: MATCH 1 X Paulo
+Servidor -> ambos:  BOARD .........
+Servidor -> ambos:  TURN X Ramiro
+Cliente  -> Servidor: MOVE 1
+Servidor -> ambos:  BOARD X........
+\end{lstlisting}
 
-Representa una partida activa. Contiene identificador, jugador X, jugador O,
-tablero y turno actual.
+\section{Logica del juego}
+
+El juego es tres en raya. El tablero tiene nueve casillas numeradas del 1 al 9:
+
+\begin{lstlisting}[style=code]
+1 | 2 | 3
+---------
+4 | 5 | 6
+---------
+7 | 8 | 9
+\end{lstlisting}
+
+Reglas:
+
+\begin{itemize}
+    \item Cada partida tiene dos jugadores.
+    \item El primer jugador emparejado usa \texttt{X}.
+    \item El segundo jugador emparejado usa \texttt{O}.
+    \item Siempre inicia \texttt{X}.
+    \item Solo puede mover el jugador indicado por \texttt{TURN}.
+    \item Un movimiento valido usa una casilla libre entre 1 y 9.
+    \item Gana quien completa fila, columna o diagonal.
+    \item Si se llenan las nueve casillas sin ganador, hay empate.
+\end{itemize}
 
 \section{Estados del jugador}
 
@@ -154,26 +297,285 @@ tablero y turno actual.
 DESCONECTADO -> CONECTADO -> LOBBY -> EN_COLA -> EN_PARTIDA -> LOBBY
 \end{lstlisting}
 
-Desde cualquier estado conectado, el jugador puede pasar a \texttt{DESCONECTADO}
-por \texttt{QUIT}, error o desconexion.
+Desde cualquier estado conectado, el jugador puede pasar a
+\texttt{DESCONECTADO} por \texttt{QUIT}, error o desconexion.
 
-\section{Compilacion y ejecucion}
+\section{Estructuras de datos}
+
+\subsection{\texttt{struct Player}}
+
+Representa a un jugador conectado.
+
+\begin{longtable}{|p{4cm}|p{9cm}|}
+\hline
+\textbf{Campo} & \textbf{Rol} \\
+\hline
+\texttt{fd} & Descriptor del socket TCP asociado al cliente. \\
+\hline
+\texttt{address} & Direccion IP del cliente. \\
+\hline
+\texttt{port} & Puerto remoto del cliente. \\
+\hline
+\texttt{name} & Nombre registrado con \texttt{HELLO}. \\
+\hline
+\texttt{registered} & Indica si ya se registro. \\
+\hline
+\texttt{buffer} & Buffer para bytes recibidos por TCP. \\
+\hline
+\texttt{buffer\_len} & Cantidad de bytes validos en el buffer. \\
+\hline
+\texttt{in\_queue} & Indica si espera rival. \\
+\hline
+\texttt{game\_id} & Partida activa; cero si no juega. \\
+\hline
+\texttt{symbol} & Simbolo asignado: \texttt{X} u \texttt{O}. \\
+\hline
+\texttt{wins, losses, draws} & Marcador efimero. \\
+\hline
+\texttt{next} & Enlace en la lista dinamica de jugadores. \\
+\hline
+\texttt{queue\_next} & Enlace en la cola de espera. \\
+\hline
+\end{longtable}
+
+\subsection{\texttt{struct Game}}
+
+Representa una partida activa.
+
+\begin{longtable}{|p{4cm}|p{9cm}|}
+\hline
+\textbf{Campo} & \textbf{Rol} \\
+\hline
+\texttt{id} & Identificador de partida. \\
+\hline
+\texttt{x\_player} & Jugador asignado a \texttt{X}. \\
+\hline
+\texttt{o\_player} & Jugador asignado a \texttt{O}. \\
+\hline
+\texttt{board} & Tablero de nueve posiciones. \\
+\hline
+\texttt{turn} & Simbolo que debe jugar. \\
+\hline
+\texttt{next} & Enlace en la lista de partidas. \\
+\hline
+\end{longtable}
+
+\section{Gestion de varios clientes}
+
+El servidor usa una lista enlazada para jugadores conectados. Cada conexion
+aceptada crea un nuevo nodo \texttt{Player}. El servidor no usa un arreglo fijo
+para almacenar jugadores conectados.
+
+La cola de espera se implementa con \texttt{queue\_head} y
+\texttt{queue\_tail}. Cuando hay dos jugadores en cola, el servidor crea una
+partida con \texttt{create\_match}.
+
+La multiplexacion se realiza con \texttt{select(2)}. El ciclo principal agrega
+al conjunto de lectura el socket del servidor y los sockets de todos los
+clientes. Si hay actividad en el socket del servidor, se acepta un cliente. Si
+hay actividad en un cliente, se lee su comando.
+
+\section{Procesamiento de mensajes}
+
+\subsection{Servidor}
+
+El servidor recibe bytes con \texttt{recv}. Como TCP es flujo de bytes, usa el
+buffer del jugador para acumular datos hasta encontrar \texttt{\textbackslash n}.
+Luego procesa la linea completa con \texttt{handle\_command}.
+
+Flujo:
+
+\begin{enumerate}
+    \item \texttt{receive\_from\_player} recibe bytes.
+    \item \texttt{process\_player\_line} limpia la linea.
+    \item \texttt{handle\_command} interpreta el comando.
+    \item Se llama a la funcion correspondiente.
+    \item \texttt{send\_line} construye y envia la respuesta.
+\end{enumerate}
+
+El servidor muestra el intercambio en consola:
 
 \begin{lstlisting}[style=code]
-make
-./bin/3enraya_server --host 127.0.0.1 --port 5000
-./bin/3enraya_client --host 127.0.0.1 --port 5000 --name Ramiro
-./bin/3enraya_client --host 127.0.0.1 --port 5000 --name Paulo
+[RX <- Ramiro] MOVE 5
+[TX -> Paulo] TURN O Paulo
 \end{lstlisting}
 
-\section{Conclusiones}
+\subsection{Cliente}
+
+El cliente usa \texttt{select} para atender teclado y socket. Si llega un
+mensaje del servidor, lo interpreta con \texttt{print\_server\_message}. Si el
+usuario escribe un comando, lo envia al servidor con \texttt{send\_all}.
+
+\section{Mapa de implementacion}
+
+\begin{longtable}{|p{6cm}|p{8cm}|}
+\hline
+\textbf{Requisito} & \textbf{Archivo y linea aproximada} \\
+\hline
+\texttt{struct Player} & \texttt{src/server.c}, linea 24. \\
+\hline
+\texttt{struct Game} & \texttt{src/server.c}, linea 42. \\
+\hline
+Lista dinamica de jugadores & \texttt{src/server.c}, linea 51. \\
+\hline
+Cola de espera & \texttt{src/server.c}, lineas 159 y 171. \\
+\hline
+Envio de respuestas & \texttt{src/server.c}, linea 80. \\
+\hline
+Listado de jugadores & \texttt{src/server.c}, linea 290. \\
+\hline
+Marcador & \texttt{src/server.c}, linea 280. \\
+\hline
+Creacion de partidas & \texttt{src/server.c}, linea 309. \\
+\hline
+Registro de jugador & \texttt{src/server.c}, linea 362. \\
+\hline
+Entrada a cola & \texttt{src/server.c}, linea 375. \\
+\hline
+Validacion de movimientos & \texttt{src/server.c}, linea 403. \\
+\hline
+Interpretacion de comandos & \texttt{src/server.c}, linea 495. \\
+\hline
+Recepcion de mensajes & \texttt{src/server.c}, linea 560. \\
+\hline
+Aceptacion de clientes & \texttt{src/server.c}, linea 602. \\
+\hline
+Uso de \texttt{select} en servidor & \texttt{src/server.c}, linea 707. \\
+\hline
+Cliente interpreta respuestas & \texttt{src/client.c}, linea 31. \\
+\hline
+Cliente procesa bytes recibidos & \texttt{src/client.c}, linea 95. \\
+\hline
+Cliente usa \texttt{select} & \texttt{src/client.c}, linea 163. \\
+\hline
+\end{longtable}
+
+Los numeros de linea pueden variar si se edita el codigo, pero los nombres de
+funciones se mantienen como referencia principal.
+
+\section{Demostracion}
+
+La cartilla pide iniciar servidor y por lo menos tres clientes. La demostracion
+recomendada usa cuatro terminales.
+
+\subsection{Terminal 1: servidor}
+
+\begin{lstlisting}[style=code]
+make clean
+make
+./bin/3enraya_server --host 127.0.0.1 --port 5000
+\end{lstlisting}
+
+\subsection{Terminales 2, 3 y 4: clientes}
+
+\begin{lstlisting}[style=code]
+./bin/3enraya_client --host 127.0.0.1 --port 5000 --name Ramiro
+./bin/3enraya_client --host 127.0.0.1 --port 5000 --name Paulo
+./bin/3enraya_client --host 127.0.0.1 --port 5000 --name Carla
+\end{lstlisting}
+
+Pasos:
+
+\begin{enumerate}
+    \item En Carla escribir \texttt{PLAYERS} para mostrar tres jugadores.
+    \item En Ramiro y Paulo escribir \texttt{QUEUE}.
+    \item Mostrar que Carla sigue en \texttt{LOBBY} y puede consultar
+    \texttt{SCORE} o \texttt{PLAYERS}.
+    \item Probar un movimiento fuera de turno.
+    \item Completar una partida.
+    \item Mostrar \texttt{RESULT WIN} o \texttt{RESULT DRAW}.
+    \item Mostrar el marcador final.
+\end{enumerate}
+
+\section{Pruebas}
+
+El proyecto incluye una prueba automatizada:
+
+\begin{lstlisting}[style=code]
+make test
+\end{lstlisting}
+
+La prueba levanta el servidor, conecta dos clientes TCP, valida registro,
+emparejamiento, turno, tablero, ganador y marcador.
+
+\section{Elementos investigados y referencias}
+
+\begin{longtable}{|p{4cm}|p{9cm}|}
+\hline
+\textbf{Elemento} & \textbf{Uso} \\
+\hline
+\texttt{socket(2)} & Crea sockets TCP. \\
+\hline
+\texttt{setsockopt(2)} & Configura \texttt{SO\_REUSEADDR}. \\
+\hline
+\texttt{bind(2)} & Asocia IP y puerto al socket. \\
+\hline
+\texttt{listen(2)} & Pone el socket del servidor en escucha. \\
+\hline
+\texttt{accept(2)} & Acepta clientes entrantes. \\
+\hline
+\texttt{select(2)} & Multiplexa varios descriptores sin procesos ni hilos. \\
+\hline
+\texttt{recv(2)} & Recibe bytes del socket. \\
+\hline
+\texttt{send(2)} & Envia bytes al socket. \\
+\hline
+\texttt{inet\_pton(3)} y \texttt{inet\_ntop(3)} & Conversion de direcciones IP. \\
+\hline
+\end{longtable}
+
+Referencias consultables en Linux:
+
+\begin{lstlisting}[style=code]
+man 2 socket
+man 2 bind
+man 2 listen
+man 2 accept
+man 2 select
+man 2 recv
+man 2 send
+man 3 inet_pton
+\end{lstlisting}
+
+\section{IA y conclusiones}
+
+\subsection{Herramienta de IA utilizada}
+
+Se utilizo asistencia de IA como apoyo para revisar requisitos, organizar la
+documentacion, preparar explicaciones y detectar puntos debiles frente a la
+cartilla. Esta seccion debe completarse con el nombre exacto de la herramienta
+utilizada y si fue version gratuita o de pago.
+
+\subsection{Evaluacion de los aportes de IA}
+
+Los aportes fueron utiles para ordenar el protocolo, identificar funciones
+importantes y preparar una guia de defensa. Sin embargo, fue necesario revisar
+el codigo, contrastarlo con los requisitos y comprobar que no se usaran
+\texttt{fork} ni \texttt{pthread}. La IA funciono como apoyo, no como reemplazo
+de la comprension del proyecto.
+
+\subsection{Conclusiones}
 
 \begin{itemize}
     \item El servidor central controla completamente el juego.
-    \item \texttt{select} permite atender varios clientes sin procesos ni hilos.
-    \item El Makefile separa compilacion de servidor y cliente usando objetos.
-    \item El protocolo de texto facilita la defensa y la depuracion.
-    \item El proyecto es compatible con Visual Studio Code y extensiones de C/C++.
+    \item \texttt{select} permite atender multiples clientes sin usar procesos
+    ni hilos.
+    \item La lista enlazada de jugadores evita un limite fijo en la estructura
+    principal de conexiones.
+    \item La cola permite emparejar jugadores de forma ordenada.
+    \item El protocolo de texto facilita la prueba, depuracion y defensa.
+    \item El registro y marcador son efimeros, como permite la cartilla.
+\end{itemize}
+
+\subsection{Aprendizajes}
+
+\begin{itemize}
+    \item Uso de sockets TCP en C.
+    \item Diferencia entre \texttt{127.0.0.1} y \texttt{0.0.0.0}.
+    \item Multiplexacion con \texttt{select}.
+    \item Diseno de protocolos de aplicacion.
+    \item Separacion entre cliente, servidor, comandos y respuestas.
+    \item Importancia de documentar estructuras, campos y funciones.
 \end{itemize}
 
 \end{document}

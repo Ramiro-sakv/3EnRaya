@@ -115,6 +115,10 @@ El informe esta en:
 docs/informe_3enraya.tex
 ```
 
+El informe cubre la cartilla: descripcion del servicio, protocolo, comandos,
+respuestas, estructuras, cola, funciones con lineas aproximadas, demo con tres
+clientes, referencias tecnicas, IA y conclusiones.
+
 Compilar PDF:
 
 ```bash
